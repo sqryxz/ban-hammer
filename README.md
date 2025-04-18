@@ -1,67 +1,73 @@
-# XRP Blacklist Tracker
+# Ban Hammer - XRP Blacklist Tracker
 
-Monitors an XRP address for transactions containing "Blacklist" in their memos and tracks the blacklisted addresses.
+A Python-based tool that monitors XRP transactions for "Task ID: Blacklist" in transaction memos, helping maintain a record of blacklisted addresses.
 
 ## Features
 
-- Monitors transactions for the past 24 hours
-- Identifies and saves blacklisted addresses
-- Sends daily summaries to Discord via webhook
-- Tracks total number of blacklisted addresses
-- Handles timezone-aware datetime comparisons
-- Provides detailed transaction logging
+- 🔍 Monitors XRP transactions for specific addresses
+- 📝 Detects "Task ID: Blacklist" in transaction memos
+- 🏷️ Tracks blacklist task IDs
+- 💾 Stores blacklisted addresses with full transaction details
+- 🤖 Automated daily checks via GitHub Actions
+- 📢 Discord webhook integration for notifications
 
 ## Setup
 
-1. Install dependencies:
+1. Clone the repository:
+```bash
+git clone https://github.com/sqryxz/ban-hammer.git
+cd ban-hammer
+```
+
+2. Install dependencies:
 ```bash
 pip install -r requirements.txt
 ```
 
-2. Set up Discord webhook:
-   - Create a webhook in your Discord server
-   - Copy the webhook URL
-   - Create a `.env` file from `.env.example`
-   - Replace the webhook URL with your actual URL
-
-3. Run the script:
+3. Set up environment variables:
+   - Copy `.env.example` to `.env`
+   - Add your Discord webhook URL:
 ```bash
-python3 xrp_blacklist_tracker.py
+DISCORD_WEBHOOK_URL=your_webhook_url_here
 ```
 
-## Discord Reports
+## Configuration
 
-The script sends daily reports to Discord containing:
-- Total number of blacklisted addresses
-- New addresses blacklisted in the last 24 hours
-- Details for each newly blacklisted address including:
-  - The address
-  - Reason for blacklisting
-  - Timestamp
+- `TARGET_ADDRESS`: XRP address to monitor
+- `HOURS_TO_CHECK`: Time period to check for transactions (default: 24 hours)
+- `DISCORD_UPDATE_INTERVAL`: How often to send Discord updates (default: 1 hour)
 
-## Output Files
+## GitHub Actions
 
-- `blacklisted_addresses.json`: Contains all blacklisted addresses with timestamps and reasons
+The repository includes a GitHub Action that:
+- Runs daily at 00:00 UTC
+- Checks for new blacklisted addresses
+- Sends updates to Discord
+- Stores results as artifacts
 
-## How it works
+To set up GitHub Actions:
+1. Go to repository Settings > Secrets
+2. Add `DISCORD_WEBHOOK_URL` as a secret
+3. The action will run automatically daily
 
-- The script monitors the XRP address: `r4yc85M1hwsegVGZ1pawpZPwj65SVs8PzD`
-- When a transaction with a memo containing "Blacklist" is found, it saves the recipient address to `blacklisted_addresses.json`
-- Each entry in the JSON file includes:
-  - The blacklisted address
-  - The original memo text
-  - The transaction hash
-  - Timestamp of when it was recorded
+## Output Format
 
-## Output
+Blacklisted addresses are stored in `blacklisted_addresses.json` with the following information:
+- Blacklisted address
+- Task ID
+- Original memo content
+- Transaction hash
+- Timestamp
 
-The script creates a `blacklisted_addresses.json` file that stores all found addresses. Each entry looks like:
+## Discord Notifications
 
-```json
-{
-  "blacklisted_address": "rXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
-  "memo": "Original memo text",
-  "transaction_hash": "Transaction hash",
-  "timestamp": "2024-XX-XX:XX:XX:XX.XXXXXX"
-}
-``` 
+Updates are sent to Discord with:
+- Address details
+- Task ID
+- Memo content
+- Transaction hash
+- Timestamp
+
+## License
+
+MIT License 

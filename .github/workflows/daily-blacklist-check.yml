@@ -23,12 +23,29 @@ jobs:
         python -m pip install --upgrade pip
         pip install xrpl-py python-dotenv requests
         
+    - name: Verify environment
+      run: |
+        if [ -z "${{ secrets.DISCORD_WEBHOOK_URL }}" ]; then
+          echo "::error::DISCORD_WEBHOOK_URL secret is not set"
+          exit 1
+        fi
+        echo "Discord webhook URL is configured"
+        
     - name: Create .env file
       run: |
         echo "DISCORD_WEBHOOK_URL=${{ secrets.DISCORD_WEBHOOK_URL }}" > .env
+        
+    - name: Initialize blacklist file
+      run: |
+        if [ ! -f "blacklisted_addresses.json" ]; then
+          echo "[]" > blacklisted_addresses.json
+          echo "Created new blacklisted_addresses.json file"
+        fi
       
     - name: Run blacklist checker
-      run: python3 xrp_blacklist_tracker.py
+      run: |
+        echo "Starting blacklist checker..."
+        python3 -u xrp_blacklist_tracker.py
       env:
         DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
       

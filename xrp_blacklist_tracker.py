@@ -1,6 +1,7 @@
 import json
 import time
 import os
+import sys
 import requests
 from datetime import datetime, timedelta, timezone
 from xrpl.clients import JsonRpcClient
@@ -18,6 +19,10 @@ logging.basicConfig(
 # Load environment variables
 load_dotenv()
 
+# Check if running in GitHub Actions
+IN_GITHUB_ACTIONS = os.getenv('GITHUB_ACTIONS') == 'true'
+logging.info(f"Running in GitHub Actions: {IN_GITHUB_ACTIONS}")
+
 # XRP address to monitor
 TARGET_ADDRESS = "r4yc85M1hwsegVGZ1pawpZPwj65SVs8PzD"
 
@@ -27,7 +32,11 @@ HOURS_TO_CHECK = 24
 # Discord webhook URL (set as environment variable)
 DISCORD_WEBHOOK_URL = os.getenv('DISCORD_WEBHOOK_URL')
 if not DISCORD_WEBHOOK_URL:
-    logging.warning("DISCORD_WEBHOOK_URL environment variable not set. Discord updates will be disabled.")
+    logging.error("DISCORD_WEBHOOK_URL environment variable not set. Discord updates will be disabled.")
+    if IN_GITHUB_ACTIONS:
+        sys.exit(1)
+else:
+    logging.info("Discord webhook URL is configured")
 
 # Update frequency for Discord (in seconds)
 DISCORD_UPDATE_INTERVAL = 3600  # 1 hour in seconds
@@ -41,16 +50,25 @@ XRPL_NODES = [
     "https://xrplcluster.com",       # Public cluster
 ]
 
+def ensure_blacklist_file():
+    """Ensure the blacklisted addresses file exists"""
+    if not os.path.exists('blacklisted_addresses.json'):
+        logging.info("Creating new blacklisted addresses file")
+        with open('blacklisted_addresses.json', 'w') as f:
+            json.dump([], f)
+
 def send_discord_summary():
     """
     Send a summary of blacklisted addresses to Discord.
     Returns True if successful, False otherwise.
     """
     if not DISCORD_WEBHOOK_URL:
-        logging.info("Discord updates disabled - webhook URL not set")
+        logging.error("Discord updates disabled - webhook URL not set")
         return False
 
     try:
+        ensure_blacklist_file()
+        
         # Load blacklisted addresses from the last period
         period_start = datetime.now(timezone.utc) - timedelta(hours=HOURS_TO_CHECK)
         recent_addresses = []
@@ -58,12 +76,13 @@ def send_discord_summary():
         try:
             with open('blacklisted_addresses.json', 'r') as f:
                 addresses = json.load(f)
+                logging.info(f"Loaded {len(addresses)} total addresses from file")
                 for addr in addresses:
                     timestamp = datetime.fromisoformat(addr['timestamp'])
                     if timestamp >= period_start:
                         recent_addresses.append(addr)
         except FileNotFoundError:
-            logging.warning("No blacklisted addresses file found")
+            logging.error("No blacklisted addresses file found")
             return False
         except json.JSONDecodeError:
             logging.error("Error reading blacklisted addresses file")
@@ -71,9 +90,28 @@ def send_discord_summary():
 
         logging.info(f"Found {len(recent_addresses)} blacklisted addresses in the last {HOURS_TO_CHECK} hours")
         
+        # Always send a summary in GitHub Actions, even if no new addresses
         if not recent_addresses:
-            logging.info("No new blacklisted addresses to report")
-            return True
+            if IN_GITHUB_ACTIONS:
+                message = f"**XRP Blacklist Update (Last {HOURS_TO_CHECK} Hours)**\n\nNo new blacklisted addresses in this period."
+                try:
+                    response = requests.post(
+                        DISCORD_WEBHOOK_URL,
+                        json={"content": message},
+                        timeout=10
+                    )
+                    if response.status_code == 204:
+                        logging.info("Empty summary notification sent successfully")
+                        return True
+                    else:
+                        logging.error(f"Failed to send empty summary. Status: {response.status_code}, Response: {response.text}")
+                        return False
+                except Exception as e:
+                    logging.error(f"Error sending empty summary: {str(e)}")
+                    return False
+            else:
+                logging.info("No new blacklisted addresses to report")
+                return True
 
         # Prepare messages (split into chunks if needed)
         messages = []
@@ -86,7 +124,7 @@ def send_discord_summary():
                 memo_text += "..."
             
             entry = (
-                f"🚫 Address: `{addr['blacklisted_address']}`\n"
+                f"🚫 Address: `{addr.get('blacklisted_address', 'N/A')}`\n"
                 f"📝 Memo: {memo_text}\n"
                 f"🔗 TX Hash: `{addr.get('transaction_hash', 'N/A')}`\n"
                 f"⏰ Time: {addr['timestamp']}\n\n"
@@ -105,8 +143,9 @@ def send_discord_summary():
 
         # Send all messages to Discord
         success = True
-        for message in messages:
+        for idx, message in enumerate(messages, 1):
             try:
+                logging.info(f"Sending Discord message {idx}/{len(messages)}")
                 response = requests.post(
                     DISCORD_WEBHOOK_URL,
                     json={"content": message},
@@ -114,13 +153,14 @@ def send_discord_summary():
                 )
                 
                 if response.status_code == 204:
-                    logging.info("Discord message sent successfully")
+                    logging.info(f"Discord message {idx}/{len(messages)} sent successfully")
                 else:
                     logging.error(f"Discord webhook failed with status {response.status_code}: {response.text}")
                     success = False
                     
                 # Add a small delay between messages to avoid rate limits
-                time.sleep(1)
+                if idx < len(messages):
+                    time.sleep(1)
                     
             except requests.exceptions.RequestException as e:
                 logging.error(f"Error sending Discord webhook: {str(e)}")
@@ -381,7 +421,19 @@ def monitor_transactions():
         return
 
 if __name__ == "__main__":
-    # Send initial Discord summary
-    send_discord_summary()
-    # Start monitoring
+    logging.info("Starting XRP Blacklist Tracker")
+    
+    # In GitHub Actions, just send the summary and exit
+    if IN_GITHUB_ACTIONS:
+        logging.info("Running in GitHub Actions mode - sending summary only")
+        if send_discord_summary():
+            logging.info("Summary sent successfully")
+            sys.exit(0)
+        else:
+            logging.error("Failed to send summary")
+            sys.exit(1)
+    
+    # Otherwise, run the normal monitoring loop
+    logging.info("Starting continuous monitoring")
+    send_discord_summary()  # Send initial summary
     monitor_transactions() 

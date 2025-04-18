@@ -39,32 +39,61 @@ jobs:
       run: |
         echo "DISCORD_WEBHOOK_URL=${{ secrets.DISCORD_WEBHOOK_URL }}" > .env
         
-    - name: Initialize blacklist file
+    - name: Backup current blacklist file
       run: |
-        if [ ! -f "blacklisted_addresses.json" ]; then
+        if [ -f "blacklisted_addresses.json" ]; then
+          cp blacklisted_addresses.json blacklisted_addresses.backup.json
+        else
           echo "[]" > blacklisted_addresses.json
           echo "Created new blacklisted_addresses.json file"
         fi
       
     - name: Run blacklist checker
+      id: blacklist_check
       run: |
         echo "Starting blacklist checker..."
-        python3 -u xrp_blacklist_tracker.py
+        if python3 -u xrp_blacklist_tracker.py; then
+          echo "Blacklist check completed successfully"
+          echo "success=true" >> $GITHUB_OUTPUT
+        else
+          echo "Blacklist check failed"
+          echo "success=false" >> $GITHUB_OUTPUT
+          if [ -f "blacklisted_addresses.backup.json" ]; then
+            cp blacklisted_addresses.backup.json blacklisted_addresses.json
+            echo "Restored backup file"
+          fi
+        fi
       env:
         DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        GITHUB_ACTIONS: "true"
       
     - name: Upload blacklisted addresses
       uses: actions/upload-artifact@v4
       if: always()
       with:
         name: blacklisted-addresses
-        path: blacklisted_addresses.json
+        path: |
+          blacklisted_addresses.json
+          blacklisted_addresses.backup.json
         retention-days: 90
         
     - name: Check for changes
       id: check_changes
+      if: steps.blacklist_check.outputs.success == 'true'
       run: |
-        git diff --quiet blacklisted_addresses.json || echo "changes=true" >> $GITHUB_OUTPUT
+        if [ -f "blacklisted_addresses.backup.json" ]; then
+          if ! cmp --silent blacklisted_addresses.json blacklisted_addresses.backup.json; then
+            echo "changes=true" >> $GITHUB_OUTPUT
+            # Count the difference in addresses
+            NEW_COUNT=$(jq length blacklisted_addresses.json)
+            OLD_COUNT=$(jq length blacklisted_addresses.backup.json)
+            DIFF=$((NEW_COUNT - OLD_COUNT))
+            echo "address_diff=$DIFF" >> $GITHUB_OUTPUT
+          fi
+        else
+          echo "changes=true" >> $GITHUB_OUTPUT
+          echo "address_diff=$(jq length blacklisted_addresses.json)" >> $GITHUB_OUTPUT
+        fi
         
     - name: Commit and push if changed
       if: steps.check_changes.outputs.changes == 'true'
@@ -72,5 +101,19 @@ jobs:
         git config --local user.email "github-actions[bot]@users.noreply.github.com"
         git config --local user.name "github-actions[bot]"
         git add blacklisted_addresses.json
-        git commit -m "Update blacklisted addresses [skip ci]"
-        git push 
+        if [ -n "${{ steps.check_changes.outputs.address_diff }}" ]; then
+          DIFF="${{ steps.check_changes.outputs.address_diff }}"
+          if [ "$DIFF" -gt 0 ]; then
+            git commit -m "Add $DIFF new blacklisted address(es) [skip ci]"
+          else
+            git commit -m "Update blacklisted addresses [skip ci]"
+          fi
+        else
+          git commit -m "Update blacklisted addresses [skip ci]"
+        fi
+        git push
+        
+    - name: Cleanup
+      if: always()
+      run: |
+        rm -f blacklisted_addresses.backup.json 

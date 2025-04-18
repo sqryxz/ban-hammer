@@ -27,7 +27,7 @@ logging.info(f"Running in GitHub Actions: {IN_GITHUB_ACTIONS}")
 TARGET_ADDRESS = "r4yc85M1hwsegVGZ1pawpZPwj65SVs8PzD"
 
 # Time period to check (in hours)
-HOURS_TO_CHECK = 24
+HOURS_TO_CHECK = 24  # Only check the last 24 hours
 
 # Discord webhook URL (set as environment variable)
 DISCORD_WEBHOOK_URL = os.getenv('DISCORD_WEBHOOK_URL')
@@ -113,60 +113,49 @@ def send_discord_summary():
                 logging.info("No new blacklisted addresses to report")
                 return True
 
-        # Prepare messages (split into chunks if needed)
-        messages = []
-        current_message = f"**XRP Blacklist Update (Last {HOURS_TO_CHECK} Hours)**\n\n"
+        # Prepare summary message
+        current_message = f"**XRP Blacklist Update**\n\n"
         
-        for addr in recent_addresses:
-            # Prepare entry for this address
-            memo_text = addr.get('memo', '')[:100]  # Shorter memo limit
-            if len(addr.get('memo', '')) > 100:
-                memo_text += "..."
-            
-            entry = (
-                f"🚫 Address: `{addr.get('blacklisted_address', 'N/A')}`\n"
-                f"📝 Memo: {memo_text}\n"
-                f"🔗 TX Hash: `{addr.get('transaction_hash', 'N/A')}`\n"
-                f"⏰ Time: {addr['timestamp']}\n\n"
+        # Count unique addresses in total
+        unique_addresses = set()
+        try:
+            with open('blacklisted_addresses.json', 'r') as f:
+                all_addresses = json.load(f)
+                for addr in all_addresses:
+                    unique_addresses.add(addr.get('blacklisted_address', 'N/A'))
+        except (FileNotFoundError, json.JSONDecodeError):
+            logging.error("Error reading all addresses")
+        
+        # Add recent addresses (last 24h)
+        if recent_addresses:
+            current_message += "🚫 **Addresses Blacklisted (Last 24 Hours)**:\n"
+            for addr in recent_addresses:
+                current_message += f"`{addr.get('blacklisted_address', 'N/A')}`\n"
+        else:
+            current_message += "No new addresses blacklisted in the last 24 hours.\n"
+        
+        # Add total unique addresses count
+        current_message += f"\n📊 **Total Unique Addresses Blacklisted**: {len(unique_addresses)}"
+
+        # Send the summary to Discord
+        try:
+            logging.info(f"Sending summary with {len(recent_addresses)} recent addresses, {len(unique_addresses)} total unique")
+            response = requests.post(
+                DISCORD_WEBHOOK_URL,
+                json={"content": current_message},
+                timeout=10
             )
             
-            # Check if adding this entry would exceed Discord's limit
-            if len(current_message) + len(entry) > DISCORD_MAX_MESSAGE_LENGTH:
-                messages.append(current_message)
-                current_message = f"**XRP Blacklist Update (Continued)**\n\n{entry}"
+            if response.status_code == 204:
+                logging.info("Summary sent successfully")
+                return True
             else:
-                current_message += entry
-        
-        # Add the last message if not empty
-        if current_message:
-            messages.append(current_message)
-
-        # Send all messages to Discord
-        success = True
-        for idx, message in enumerate(messages, 1):
-            try:
-                logging.info(f"Sending Discord message {idx}/{len(messages)}")
-                response = requests.post(
-                    DISCORD_WEBHOOK_URL,
-                    json={"content": message},
-                    timeout=10
-                )
+                logging.error(f"Discord webhook failed with status {response.status_code}: {response.text}")
+                return False
                 
-                if response.status_code == 204:
-                    logging.info(f"Discord message {idx}/{len(messages)} sent successfully")
-                else:
-                    logging.error(f"Discord webhook failed with status {response.status_code}: {response.text}")
-                    success = False
-                    
-                # Add a small delay between messages to avoid rate limits
-                if idx < len(messages):
-                    time.sleep(1)
-                    
-            except requests.exceptions.RequestException as e:
-                logging.error(f"Error sending Discord webhook: {str(e)}")
-                success = False
-        
-        return success
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Error sending Discord webhook: {str(e)}")
+            return False
             
     except Exception as e:
         logging.error(f"Unexpected error in send_discord_summary: {str(e)}")

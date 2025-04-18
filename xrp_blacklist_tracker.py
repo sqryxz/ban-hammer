@@ -87,7 +87,6 @@ def send_discord_summary():
             
             entry = (
                 f"🚫 Address: `{addr['blacklisted_address']}`\n"
-                f"🏷️ Task ID: `{addr.get('task_id', 'Unknown')}`\n"
                 f"📝 Memo: {memo_text}\n"
                 f"🔗 TX Hash: `{addr.get('transaction_hash', 'N/A')}`\n"
                 f"⏰ Time: {addr['timestamp']}\n\n"
@@ -161,19 +160,9 @@ def get_working_client():
 def save_blacklisted_address(address, memo, tx_hash):
     """Save blacklisted address to a file with timestamp and transaction details"""
     timestamp = datetime.now(timezone.utc).isoformat()
-    
-    # Extract Task ID if present
-    task_id = "Unknown"
-    if isinstance(memo, str) and "Task ID:" in memo:
-        try:
-            task_id = memo.split("Task ID:")[1].strip().split()[0]
-        except:
-            pass
-    
     entry = {
         "blacklisted_address": address,
         "memo": memo,
-        "task_id": task_id,
         "transaction_hash": tx_hash,
         "timestamp": timestamp
     }
@@ -189,7 +178,7 @@ def save_blacklisted_address(address, memo, tx_hash):
     with open("blacklisted_addresses.json", "w") as f:
         json.dump(data, f, indent=2)
     
-    print(f"⛔ New blacklisted address saved: {address} (Task ID: {task_id})")
+    print(f"⛔ New blacklisted address saved: {address}")
 
 def decode_memo_data(memo_data):
     """Safely decode memo data from hex to string"""
@@ -199,33 +188,6 @@ def decode_memo_data(memo_data):
         print(f"   ⚠️  Error decoding memo: {e}")
         print(f"   🔍 Raw memo data: {memo_data}")
         return None
-
-def check_memo_for_blacklist(memo):
-    """Check if a memo contains Task ID: Blacklist"""
-    # Get all memo fields
-    memo_type = memo.get("MemoType", "")
-    memo_format = memo.get("MemoFormat", "")
-    memo_data = memo.get("MemoData", "")
-    
-    # Decode the fields
-    decoded_type = decode_memo_data(memo_type) if memo_type else ""
-    decoded_format = decode_memo_data(memo_format) if memo_format else ""
-    decoded_data = decode_memo_data(memo_data) if memo_data else ""
-    
-    # Check for "Task ID: Blacklist" in any of the decoded fields
-    fields_to_check = [
-        decoded_type,
-        decoded_format,
-        decoded_data
-    ]
-    
-    # Look specifically for "Task ID: Blacklist"
-    for field in fields_to_check:
-        if field and isinstance(field, str):
-            if "Task ID: Blacklist" in field:
-                return True, field
-    
-    return False, None
 
 def get_transaction_date(tx_info):
     """Extract transaction date from either tx_json or meta data"""
@@ -250,7 +212,7 @@ def get_transaction_date(tx_info):
     return None
 
 def process_transaction(tx_info, start_time):
-    """Process a single transaction and check for Task ID: Blacklist in memo"""
+    """Process a single transaction and check for 'Blacklist' in memo"""
     # Debug: Print raw transaction info
     print("\n🔍 Processing transaction:")
     print(f"Raw tx_info keys: {list(tx_info.keys())}")
@@ -305,9 +267,6 @@ def process_transaction(tx_info, start_time):
             print(f"\n   Memo #{idx}:")
             memo = memo_wrapper.get("Memo", {})
             
-            # Check for Task ID: Blacklist
-            is_blacklist, matching_content = check_memo_for_blacklist(memo)
-            
             # Show all memo fields
             for field in ["MemoType", "MemoFormat", "MemoData"]:
                 if field in memo:
@@ -316,11 +275,10 @@ def process_transaction(tx_info, start_time):
                         decoded_memo = decode_memo_data(memo[field])
                         if decoded_memo:
                             print(f"   - Decoded Memo: {decoded_memo}")
-            
-            if is_blacklist:
-                print(f"   🚨 BLACKLIST TASK ID FOUND: {matching_content}")
-                if destination != "Unknown":
-                    save_blacklisted_address(destination, matching_content, tx_hash)
+                            if "blacklist" in decoded_memo.lower():
+                                print(f"   🚨 BLACKLIST FOUND in memo!")
+                                if destination != "Unknown":
+                                    save_blacklisted_address(destination, decoded_memo, tx_hash)
     else:
         print("   No memos in this transaction")
     

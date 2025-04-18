@@ -8,10 +8,14 @@ on:
 jobs:
   check-blacklist:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write  # Needed for pushing changes
     
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Fetch all history for proper git operations
       
     - name: Set up Python
       uses: actions/setup-python@v5
@@ -55,4 +59,18 @@ jobs:
       with:
         name: blacklisted-addresses
         path: blacklisted_addresses.json
-        retention-days: 90 
+        retention-days: 90
+        
+    - name: Check for changes
+      id: check_changes
+      run: |
+        git diff --quiet blacklisted_addresses.json || echo "changes=true" >> $GITHUB_OUTPUT
+        
+    - name: Commit and push if changed
+      if: steps.check_changes.outputs.changes == 'true'
+      run: |
+        git config --local user.email "github-actions[bot]@users.noreply.github.com"
+        git config --local user.name "github-actions[bot]"
+        git add blacklisted_addresses.json
+        git commit -m "Update blacklisted addresses [skip ci]"
+        git push 

@@ -208,17 +208,44 @@ def save_blacklisted_address(address, memo, tx_hash):
     }
     
     try:
-        with open("blacklisted_addresses.json", "r") as f:
-            data = json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        data = []
-    
-    data.append(entry)
-    
-    with open("blacklisted_addresses.json", "w") as f:
-        json.dump(data, f, indent=2)
-    
-    print(f"⛔ New blacklisted address saved: {address}")
+        # Ensure the file exists
+        ensure_blacklist_file()
+        
+        # Load existing data
+        try:
+            with open("blacklisted_addresses.json", "r") as f:
+                data = json.load(f)
+                logging.info(f"Loaded {len(data)} existing addresses")
+        except json.JSONDecodeError:
+            logging.warning("Error reading file, starting fresh")
+            data = []
+        
+        # Check for duplicates
+        is_duplicate = False
+        for existing in data:
+            if (existing.get('blacklisted_address') == address and 
+                existing.get('transaction_hash') == tx_hash):
+                is_duplicate = True
+                break
+        
+        if is_duplicate:
+            logging.info(f"Address {address} already blacklisted with this transaction")
+            return
+        
+        # Add new entry
+        data.append(entry)
+        
+        # Sort by timestamp (newest first)
+        data.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
+        
+        # Save back to file
+        with open("blacklisted_addresses.json", "w") as f:
+            json.dump(data, f, indent=2)
+        
+        logging.info(f"⛔ New blacklisted address saved: {address}")
+        
+    except Exception as e:
+        logging.error(f"Error saving blacklisted address: {str(e)}")
 
 def decode_memo_data(memo_data):
     """Safely decode memo data from hex to string"""

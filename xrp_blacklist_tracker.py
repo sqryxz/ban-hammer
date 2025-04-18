@@ -342,7 +342,8 @@ def process_transaction(tx_info, start_time):
                         decoded_memo = decode_memo_data(memo[field])
                         if decoded_memo:
                             print(f"   - Decoded Memo: {decoded_memo}")
-                            if "blacklist" in decoded_memo.lower():
+                            # Check for both "Blacklist" and "blacklist"
+                            if "Blacklist" in decoded_memo or "blacklist" in decoded_memo:
                                 print(f"   🚨 BLACKLIST FOUND in memo!")
                                 if destination != "Unknown":
                                     save_blacklisted_address(destination, decoded_memo, tx_hash)

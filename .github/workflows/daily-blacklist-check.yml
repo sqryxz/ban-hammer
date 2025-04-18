@@ -1,0 +1,41 @@
+name: Daily XRP Blacklist Check
+
+on:
+  schedule:
+    - cron: '0 0 * * *'  # Run at 00:00 UTC every day
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  check-blacklist:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.x'
+        
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install xrpl-py python-dotenv requests
+        
+    - name: Create .env file
+      run: |
+        echo "DISCORD_WEBHOOK_URL=${{ secrets.DISCORD_WEBHOOK_URL }}" > .env
+      
+    - name: Run blacklist checker
+      run: python3 xrp_blacklist_tracker.py
+      env:
+        DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+      
+    - name: Upload blacklisted addresses
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: blacklisted-addresses
+        path: blacklisted_addresses.json
+        retention-days: 90 
